@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+    <title>Babylon Test</title>
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/normalize/3.0.3/normalize.min.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1"></meta>
+
+    <style>
+        html, body {
+            overflow: hidden;
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+        #renderCanvas {
+            width: 100%;
+            height: 100%;
+            touch-action: none;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.6.2/dat.gui.min.js"></script>
+    <script src="https://assets.babylonjs.com/generated/Assets.js"></script>
+    <script src="https://cdn.babylonjs.com/recast.js"></script>
+    <script src="https://cdn.babylonjs.com/ammo.js"></script>
+    <script src="https://cdn.babylonjs.com/havok/HavokPhysics_umd.js"></script>
+    <script src="https://cdn.babylonjs.com/cannon.js"></script>
+    <script src="https://cdn.babylonjs.com/Oimo.js"></script>
+    <script src="https://cdn.babylonjs.com/earcut.min.js"></script>
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <script src="https://cdn.babylonjs.com/materialsLibrary/babylonjs.materials.min.js"></script>
+    <script src="https://cdn.babylonjs.com/proceduralTexturesLibrary/babylonjs.proceduralTextures.min.js"></script>
+    <script src="https://cdn.babylonjs.com/postProcessesLibrary/babylonjs.postProcess.min.js"></script>
+    <!-- <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.js"></script> -->
+    <script src="https://cdn.babylonjs.com/serializers/babylonjs.serializers.min.js"></script>
+    <script src="https://cdn.babylonjs.com/gui/babylon.gui.min.js"></script>
+    <script src="https://cdn.babylonjs.com/inspector/babylon.inspector.bundle.js"></script>
+    <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+    <script src="https://code.jquery.com/pep/0.4.3/pep.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/2.18.8/mqtt.min.js"></script>
+    <script src="https://cdn.babylonjs.com/viewer/babylon.viewer.js"></script>
+</head>
+<body>
+<canvas id="renderCanvas" touch-action="none"></canvas>
+<!-- **确保按钮可见** -->
+<button id="moveButton" style="display: block;">Move Senson319C</button>
+<script>
+    const canvas = document.getElementById("renderCanvas");
+    const engine = new BABYLON.Engine(canvas, true);
+
+    var lightGlobal
+    var Senson319CGlobal;
+    let animFlag = 0;  // 当前值
+    let animateStartFlag = 0;  //animate启动标志
+    var vector3Obj;
+    let jiaAddr=1;
+    let sensorAddr =100;
+    var clonedMesh=[];
+    var cloneLaohuaJia=[];
+
+    const SensorUrl = "http://192.168.1.226:8000/";   // 模型的URL
+    const sensorCheName = "319C.glb"; // 模型的名称
+    const laohuaJiaUrl = "http://192.168.1.226:8000/";   // 模型的URL
+    const laohuaJiaName = "laoHuaJia.glb"; // 模型的名称
+    const mqttUrl = "mqtt://192.168.1.226:8083/mqtt"; // MQTT服务器地址
+    const mqttTopic = "senson319C"; // MQTT主题
+    
+
+    // 创建场景
+    const createScene = function () {
+        const scene = new BABYLON.Scene(engine);
+        const camera = new BABYLON.ArcRotateCamera("camera", 0,0, 5, new BABYLON.Vector3(0, 0, 0));  //-Math.PI / 2, Math.PI / 3
+        // 设置 zoomToMouseLocation 为 true，使得鼠标滚轮缩放以鼠标位置为中心
+        camera.zoomToMouseLocation = true;
+        // 可以设置 wheelDeltaPercentage 来改变缩放速度
+        camera.wheelDeltaPercentage = 0.01;
+        camera.attachControl(canvas, true);
+        //const light = new BABYLON.PointLight("light", new BABYLON.Vector3(0, 2, 0), scene);  //点光源 //HemisphericLight("light", new BABYLON.Vector3(1, 1, 0));
+        const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 5, 0), scene);  //半球光源
+    
+
+        // 调用loadModel函数，传入模型URL和回调函数  
+        loadModel(SensorUrl, sensorCheName,scene, onSensorLoaded);
+        loadModel(laohuaJiaUrl, laohuaJiaName,scene, onLaohuaJiaLoaded);
+
+        // 创建地面
+        const ground = BABYLON.Mesh.CreateGround("ground", 50, 50, 1, scene);
+        ground.position.y = -0.1;
+        ground.material = new BABYLON.StandardMaterial("ground", scene);
+        ground.material.diffuseColor = new BABYLON.Color3(0.2, 0.2, 0.25);
+        ground.material.specularColor = new BABYLON.Color3(0, 0, 0);
+
+        // 加载天空盒
+        const skybox = BABYLON.Mesh.CreateBox("skyBox", 1000, scene);
+        const skyboxMaterial = new BABYLON.StandardMaterial("skyBox", scene);
+        skyboxMaterial.backFaceCulling = false;
+        skyboxMaterial.reflectionTexture = new BABYLON.CubeTexture("https://assets.babylonjs.com/environments/skybox", scene);
+        skyboxMaterial.reflectionTexture.coordinatesMode = BABYLON.Texture.SKYBOX_MODE;
+        skybox.material = skyboxMaterial;
+        skybox.infiniteDistance = true;
+
+
+        return scene;
+    };
+
+    const scene = createScene(); // 创建场景
+    engine.runRenderLoop(function () {
+        scene.render();
+    });
+   
+    window.addEventListener("resize", function () {
+        engine.resize();
+    })
+
+
+    // serson加载完成的回调函数，执行一些操作
+    function onSensorLoaded(result) {
+       if (result.meshes.length > 0) { 
+            const baseSensor = result.meshes[0]; // 假设你要获取第一个模型
+            // const baseSensor = cene.getMeshByName("__root__"); 
+            Senson319CGlobal = baseSensor;
+            baseSensor.position = new BABYLON.Vector3(0, 0, 0); // 设置位置
+            vector3Obj = baseSensor.scaling.clone(); // 保存缩放比例
+            
+  
+            //外壳
+            const shell = scene.getMeshByName("shell"); // 
+            const marteral = new BABYLON.StandardMaterial("marteral", scene); // 创建材质
+            marteral.diffuseColor = new BABYLON.Color3(1, 0.8, 0.75); // 设置颜色为红色
+            marteral.alpha = 1; // 设置透明度 
+            shell.material = marteral; // 应用材质
+           
+           // 按键
+            const xiaoYingButton = scene.getMeshByName("btn_xiaoYin"); // 
+            const xiaoYingMaterial = new BABYLON.StandardMaterial("btn_xiaoYin", scene); // 创建材质
+            xiaoYingMaterial.diffuseColor = new BABYLON.Color3(0.8, 0.2, 0.2); // 设置漫反射颜色为淡红色
+            xiaoYingMaterial.specularColor = new BABYLON.Color3(0.8, 0.2, 0.2); // 设置镜面反射颜色为白色
+            xiaoYingMaterial.emissiveColor = new BABYLON.Color3(0.8, 0.2, 0.2); // 设置自发光颜色为淡红色
+            xiaoYingMaterial.alpha = 0.85; // 设置透明度
+            xiaoYingButton.material = xiaoYingMaterial; // 应用材质
+            
+            const selfButton = scene.getMeshByName("btn_selfCheck"); 
+            const seftButtonMaterial = new BABYLON.StandardMaterial("marteralSeft", scene); // 创建材质
+            seftButtonMaterial.alpha = 0.7; // 设置透明度
+            seftButtonMaterial.diffuseColor = new BABYLON.Color3(0.8, 0.8, 0.8); // 设置颜色为灰色
+            seftButtonMaterial.specularColor = new BABYLON.Color3(0.8, 0.8, 0.8); // 设置镜面反射颜色为白色
+            seftButtonMaterial.emissiveColor = new BABYLON.Color3(0.8, 0.8, 0.8); // 设置自发光颜色为淡红色
+            selfButton.material = seftButtonMaterial; // 应用材质
+           
+            //LED
+            const ledAlarm = scene.getMeshByName("led_alarm");
+            const ledAlarmMaterial = new BABYLON.StandardMaterial("marteralSeft", scene); // 创建材质
+            ledAlarmMaterial.diffuseColor = new BABYLON.Color3(1,0,0);// 设置颜色为红色
+            ledAlarmMaterial.specularColor = new BABYLON.Color3(1,0,0);// 设置镜面反射颜色为白色
+            ledAlarmMaterial.emissiveColor = new BABYLON.Color3(1,0,0);// 设置自发光颜色为淡红色
+            ledAlarmMaterial.alpha = 1; // 设置透明度
+            ledAlarm.material = ledAlarmMaterial;  
+   
+            const ledFault = scene.getMeshByName("led_fault");
+            const ledFaultMaterial = new BABYLON.StandardMaterial("marteralSeft", scene); // 创建材质
+            ledFaultMaterial.diffuseColor = new BABYLON.Color3(0,1,0);// 设置颜色为橙色
+            ledFaultMaterial.specularColor = new BABYLON.Color3(0,1,0);// 设置镜面反射颜色为白色
+            ledFaultMaterial.emissiveColor = new BABYLON.Color3(0,1,0);// 设置自发光颜色为淡红色
+            ledFaultMaterial.alpha = 1; // 设置透明度
+            ledFault.material = ledFaultMaterial; // 应用材质
+            
+            const ledNormal = scene.getMeshByName("led_normal");
+            const ledNormalMaterial = new BABYLON.StandardMaterial("marteralSeft", scene); // 创建材质
+            ledNormalMaterial.diffuseColor = new BABYLON.Color3(1,1,1);// 设置颜色为红色
+            ledNormalMaterial.specularColor = new BABYLON.Color3(1,1,1);// 设置镜面反射颜色为白色
+            ledNormalMaterial.emissiveColor = new BABYLON.Color3(1,1,1);// 设置自发光颜色为白色
+            ledNormalMaterial.alpha = 1; // 设置透明度
+            ledNormal.material = ledNormalMaterial; // 应用材质
+            //animate(); // 启动动画循环
+  
+            // // 创建编号标签
+            createLabel(Senson319CGlobal,sensorAddr,"red",14,0,0.2,0);
+
+            // // 按键事件
+            // xiaoYingButton.actionManager = new BABYLON.ActionManager(scene);
+            // xiaoYingButton.actionManager.registerAction(new BABYLON.ExecuteCodeAction(
+            //     BABYLON.ActionManager.OnPickTrigger, (ev) => {    // 鼠标单击就触发
+            //         alert("pointer over xiaoYingButton");           
+            // }));
+            // xiaoYingButton.actionManager.registerAction(new BABYLON.ExecuteCodeAction(
+            //     BABYLON.ActionManager.OnPointerOverTrigger, (ev) => {   // 鼠标移入就触发
+            //         //Senson319CGlobal.scaling.scaleInPlace(1.5);  // 将 shell 放大 0.5 倍 (1.5 倍)
+            //         baseSensor.scaling.x = vector3Obj.x*1.2; // 设置缩放
+            //         baseSensor.scaling.y = vector3Obj.y*1.2; // 设置缩放
+            //         baseSensor.scaling.z = vector3Obj.z*1.2; // 设置缩放
+            //     }
+            // ));
+            // xiaoYingButton.actionManager.registerAction(new BABYLON.ExecuteCodeAction(
+            //     BABYLON.ActionManager.OnPointerOutTrigger, (ev) => {   // 鼠标移出就触发
+            //         //Senson319CGlobal.scaling.set(vector3Obj.x, vector3Obj.y,vector3Obj.z);  // 恢复到原始大小
+            //         baseSensor.scaling.x /=1.2; // 设置缩放
+            //         baseSensor.scaling.y /=1.2; // 设置缩放
+            //         baseSensor.scaling.z /=1.2;// 设置缩放
+            //     }
+            // ));
+            
+            // selfButton.actionManager = new BABYLON.ActionManager(scene);
+            // selfButton.actionManager.registerAction(new BABYLON.ExecuteCodeAction(
+            //     BABYLON.ActionManager.OnPickTrigger, (ev) => {    // 鼠标单击就触发
+            //         alert("pointer over selfButton");      
+            // }));
+            // selfButton.actionManager.registerAction(new BABYLON.ExecuteCodeAction(
+            //     BABYLON.ActionManager.OnPointerOverTrigger, (ev) => {   // 鼠标移入就触发
+            //         //Senson319CGlobal.scaling.scaleInPlace(1.5);  // 将 shell 放大 0.5 倍 (1.5 倍)
+            //         baseSensor.scaling.x = vector3Obj.x*1.2; // 设置缩放
+            //         baseSensor.scaling.y = vector3Obj.y*1.2; // 设置缩放
+            //         baseSensor.scaling.z = vector3Obj.z*1.2; // 设置缩放
+            //     }
+            // ));
+
+            // // 鼠标移出就还原
+            // selfButton.actionManager.registerAction(new BABYLON.ExecuteCodeAction(
+            //     BABYLON.ActionManager.OnPointerOutTrigger, (ev) => {   // 鼠标移出就触发
+            //         //Senson319CGlobal.scaling.set(vector3Obj.x, vector3Obj.y,vector3Obj.z);  // 恢复到原始大小
+            //         baseSensor.scaling.x /=1.2; // 设置缩放
+            //         baseSensor.scaling.y /=1.2; // 设置缩放
+            //         baseSensor.scaling.z /=1.2;// 设置缩放
+            //     }
+            // ));
+
+            // shell.actionManager = new BABYLON.ActionManager(scene);
+            // // 鼠标移入就放大 0.2 倍
+            // shell.actionManager.registerAction(new BABYLON.ExecuteCodeAction(
+            //     BABYLON.ActionManager.OnPointerOverTrigger, (ev) => {   // 鼠标移入就触发
+            //         //Senson319CGlobal.scaling.scaleInPlace(1.5);  // 将 shell 放大 0.5 倍 (1.5 倍)
+            //         baseSensor.scaling.x = vector3Obj.x*1.2; // 设置缩放
+            //         baseSensor.scaling.y = vector3Obj.y*1.2; // 设置缩放
+            //         baseSensor.scaling.z = vector3Obj.z*1.2; // 设置缩放
+            //     }
+            // ));
+
+            // // 鼠标移出就还原
+            // shell.actionManager.registerAction(new BABYLON.ExecuteCodeAction(
+            //     BABYLON.ActionManager.OnPointerOutTrigger, (ev) => {   // 鼠标移出就触发
+            //         //Senson319CGlobal.scaling.set(vector3Obj.x, vector3Obj.y,vector3Obj.z);  // 恢复到原始大小
+            //         baseSensor.scaling.x /=1.2; // 设置缩放
+            //         baseSensor.scaling.y /=1.2; // 设置缩放
+            //         baseSensor.scaling.z /=1.2;// 设置缩放
+            //     }
+            // ));
+            
+            // 合并mesh
+            var mergedMesh = BABYLON.Mesh.MergeMeshes(
+                [shell, xiaoYingButton, selfButton, ledAlarm, ledFault, ledNormal], 
+                true, 
+                true, 
+                undefined, 
+                undefined, 
+                undefined
+            ); 
+            // 克隆合并后的mesh
+             for (let k = 0; k < 5; k++) 
+             { // 创建5个实例baseSensor.createInstance("serson319C" + i); 
+                clonedMesh[k] = mergedMesh.clone('clonedMesh'+k); 
+                clonedMesh[k].position.x = 0; //  = new BABYLON.Vector3(0, 0, (k+1)*0.3);
+                clonedMesh[k].position.y = 0; 
+                clonedMesh[k].position.z = (k+1)*0.3; // 设置位置
+                // 添加到场景中
+                scene.addMesh(clonedMesh[k]);
+               
+                clonedMesh[k].actionManager = new BABYLON.ActionManager(scene);
+                // 鼠标移入就放大 0.2 倍
+                clonedMesh[k].actionManager.registerAction(new BABYLON.ExecuteCodeAction(
+                    BABYLON.ActionManager.OnPointerOverTrigger, (ev) => {   // 鼠标移入就触发
+                        //Senson319CGlobal.scaling.scaleInPlace(1.5);  // 将 shell 放大 0.5 倍 (1.5 倍)
+                        clonedMesh[k].scaling.x *= 1.2; // 设置缩放
+                        clonedMesh[k].scaling.y *= 1.2; // 设置缩放
+                        clonedMesh[k].scaling.z *= 1.2; // 设置缩放
+                    }
+                ));
+                // 鼠标移出就还原
+                clonedMesh[k].actionManager.registerAction(new BABYLON.ExecuteCodeAction(
+                    BABYLON.ActionManager.OnPointerOutTrigger, (ev) => {   // 鼠标移出就触发
+                        //Senson319CGlobal.scaling.set(vector3Obj.x, vector3Obj.y,vector3Obj.z);  // 恢复到原始大小
+                        clonedMesh[k].scaling.x /=1.2; // 设置缩放
+                        clonedMesh[k].scaling.y /=1.2; // 设置缩放
+                        clonedMesh[k].scaling.z /=1.2;// 设置缩放
+                    }
+                )); 
+                clonedMesh[k].actionManager.registerAction(new BABYLON.ExecuteCodeAction(
+                BABYLON.ActionManager.OnPickTrigger, (ev) => {    // 鼠标单击就触发
+                    alert("pointer over clonedMesh[k]");  
+                   
+                })); 
+            }
+
+            res = 1;
+        } else {
+            console.error('No meshes found in the loaded model.');
+            res = 2;
+        }     
+    }
+   
+    // 如果你需要在场景中更新标签的位置
+    function updateLabelPosition(labelContainer, newX, newY, newZ) {
+        labelContainer.blockOffset = new BABYLON.Vector3(newX, newY, newZ);
+    }
+    //创建标签
+    function createLabel(mesh,addr,color,fontSize,x,y,z) { 
+        // GUI
+        var advancedTexture = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
+
+        var rect1 = new BABYLON.GUI.Rectangle();
+        rect1.width = 0.04;//0.2;
+        rect1.height = 0.03;//"40px";
+        rect1.cornerRadius = 4;//20;
+        rect1.color = "grey";//"Orange";  灰色
+        rect1.thickness = 0.5;
+        rect1.background = "green";
+        advancedTexture.addControl(rect1);
+
+        var label = new BABYLON.GUI.TextBlock();
+        label.text =  `${addr}号`;//"Sphere";
+        label.fontSize = fontSize; // 设置字体大小
+        label.color = color; // 设置文字颜色
+        rect1.addControl(label);
+        rect1.linkWithMesh(mesh);   
+        rect1.linkOffsetY = -50;
+        rect1.linkOffsetX = -12;
+    }
+    //创建定时器函数
+    function createTimer(label,time,addr) {
+        var intervalID = setInterval(function() {
+            if(animateStartFlag == 1)
+            {
+                label.text = ``; 
+                animateStartFlag = 0;
+            }
+            else
+            {
+                label.text = `地址:${addr}`; //animate();   label.text = `地址:${addr}`; //animate(); 
+                animateStartFlag = 1;
+            }
+        }, time); // 每1000毫秒（即2秒）执行一次函数
+
+        // 如果你想在5秒后停止间隔执行，可以这样做：
+        setTimeout(function() {
+            clearInterval(intervalID);
+            label.text = `地址:${addr}`;
+            animateStartFlag = 0;
+        }, time*10); // 10000毫秒后（即10秒后）停止执行
+    }
+    // 动画循环
+    function animate() {
+            requestAnimationFrame(animate);
+            //Senson319CGlobal.rotation.x += 0.01;
+            
+            if(animFlag)
+            {  
+                Senson319CGlobal.position.y += 0.005;
+                if(Senson319CGlobal.position.y > 0.1)
+                   animFlag = 0;
+            }    
+            else
+            {
+                Senson319CGlobal.position.y -= 0.005;
+                if(Senson319CGlobal.position.y <= 0)
+                   animFlag = 1;
+            } 
+            //renderer.render(scene, camera);
+    }
+                           
+    // 定义一个函数来异步加载模型，并在加载完成后执行自定义操作
+    function loadModel(modelUrl,fileName, scene, onLoad) {
+        BABYLON.SceneLoader.ImportMeshAsync("", modelUrl, fileName, scene).then((result) => {
+            // 模型加载成功后的操作
+            //result.meshes.forEach((mesh) => {
+                // 调用传入的回调函数
+                if (onLoad) {
+                    onLoad(result);
+                }
+            //});
+        });
+   
+    //    // 定义一个函数来同步加载模型，并在加载完成后执行自定义操作
+    //     BABYLON.SceneLoader.ImportMesh("", modelUrl, fileName, scene, function (newMeshes) {
+    //         client.publish('AnsMessage','模型加载成功');
+    //         // 调用传入的回调函数
+    //         if (onLoad) {
+    //             onLoad(newMeshes);
+    //         }
+    //     }, null, function (scene, message) {
+    //         client.publish('AnsMessage',"模型加载失败:");
+    //     });
+    }
+
+    function onLaohuaJiaLoaded(result) {
+        if (result.meshes.length > 0) {
+            const laohuaJiaMode = result.meshes[0]; // 假设你要获取第一个模型
+            laohuaJiaMode.position = new BABYLON.Vector3(0, 1.4, 0); // 设置位置
+            laohuaJiaMode.rotation.x = 0; // // = new BABYLON.Vector3(90, 0, 0);//(-90, 0, 0); // 设置朝向           
+            laohuaJiaMode.rotation.y = Math.PI / 2; // // = new BABYLON.Vector3(0, 0, 0); // 设置朝向
+            laohuaJiaMode.rotation.z = 0; // // = new BABYLON.Vector3(0, 0, 0); // 设置朝向
+            //架子
+            const jia = scene.getMeshByName("laoHuaJiaNode"); //
+            var mergedMesh = BABYLON.Mesh.MergeMeshes(
+                [jia], 
+                true, 
+                true, 
+                undefined, 
+                undefined, 
+                undefined
+            ); 
+            // jia.rotation.x = 0; 
+            // jia.rotation.y = Math.PI / 2;
+            // jia.rotation.z = 0; 
+            // const marteral = new BABYLON.StandardMaterial("mart", scene); // 创建材质
+            // marteral.diffuseColor = new BABYLON.Color3(0.25, 0.2, 0.2); // 设置颜色为灰色
+            // marteral.femaleColor = new BABYLON.Color3(0.25, 0.2, 0.2); // 设置颜色为灰色
+            // marteral.emissiveColor = new BABYLON.Color3(0.25, 0.2, 0.2); // 设置自发光颜色为灰色
+            // marteral.alpha = 1; // 设置透明度 
+            // jia.material = marteral; // 应用材质
+             // 创建多个实例
+            for (let i = 0; i < 5; i++) { // 创建5个实例
+                cloneLaohuaJia[i] = mergedMesh.createInstance("laohuache" + i);
+                // 添加到场景中
+                scene.addMesh(cloneLaohuaJia[i]);
+                cloneLaohuaJia[i].position.x = 0; // // 设置每个实例的位置
+                cloneLaohuaJia[i].position.y = 0;
+                cloneLaohuaJia[i].position.z = i*1.5;
+                //cloneLaohuaJia[i].rotate(Vector3.Up,, Space.LOCAL);   // = new BABYLON.Vector(0, 0, 0);
+                cloneLaohuaJia[i].rotation.x = 0; 
+                cloneLaohuaJia[i].rotation.y =  Math.PI / 2;
+                cloneLaohuaJia[i].rotation.z = 0; 
+                // 创建编号标签
+                //createLabel(laohuaJia,jiaAddr,"blue",20,1,0.4,1);
+
+                cloneLaohuaJia[i].actionManager = new BABYLON.ActionManager(scene);
+                cloneLaohuaJia[i].actionManager.registerAction(new BABYLON.ExecuteCodeAction(
+                    BABYLON.ActionManager.OnPickTrigger, (ev) => {    // 鼠标单击就触发
+                        alert("pointer over jia");  
+                    
+                }));
+                // 鼠标移入就放大 0.2 倍
+                cloneLaohuaJia[i].actionManager.registerAction(new BABYLON.ExecuteCodeAction(
+                    BABYLON.ActionManager.OnPointerOverTrigger, (ev) => {   // 鼠标移入就触发
+                        //Senson319CGlobal.scaling.scaleInPlace(1.5);  // 将 shell 放大 0.5 倍 (1.5 倍)
+                        cloneLaohuaJia[i].scaling.x *= 1.2; // 设置缩放
+                        cloneLaohuaJia[i].scaling.y *= 1.2; // 设置缩放
+                        cloneLaohuaJia[i].scaling.z *= 1.2; // 设置缩放
+                    }
+                ));
+                // 鼠标移出就还原
+                cloneLaohuaJia[i].actionManager.registerAction(new BABYLON.ExecuteCodeAction(
+                    BABYLON.ActionManager.OnPointerOutTrigger, (ev) => {   // 鼠标移出就触发
+                        //Senson319CGlobal.scaling.set(vector3Obj.x, vector3Obj.y,vector3Obj.z);  // 恢复到原始大小
+                        cloneLaohuaJia[i].scaling.x /=1.2; // 设置缩放
+                        cloneLaohuaJia[i].scaling.y /=1.2; // 设置缩放
+                        cloneLaohuaJia[i].scaling.z /=1.2;// 设置缩放
+                    }
+                ));
+            }
+        }
+    }
+
+</script>
+<button id="moveButton">Move Senson319C</button>
+</body>
+</html>

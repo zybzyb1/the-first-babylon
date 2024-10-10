@@ -58,26 +58,28 @@
     let sensorAddr =100;
     var clonedMesh=[];
     var cloneLaohuaJia=[];
+    var mqttClient;
 
-    const SensorUrl = "http://192.168.1.226:8000/";   // 模型的URL
+    const SensorUrl =  "https://zybzyb1.github.io/the-first-babylon/"; //"http://192.168.1.226:8000/";   // 模型的URL
     const sensorCheName = "319C.glb"; // 模型的名称
-    const laohuaJiaUrl = "http://192.168.1.226:8000/";   // 模型的URL
+    const laohuaJiaUrl =  "https://zybzyb1.github.io/the-first-babylon/"; //"http://192.168.1.226:8000/";   // 模型的URL
     const laohuaJiaName = "laoHuaJia.glb"; // 模型的名称
-    const mqttUrl = "mqtt://192.168.1.226:8083/mqtt"; // MQTT服务器地址
+    const mqttUrl = "wss://broker-cn.emqx.io:8084/mqtt";//"mqtt://192.168.1.226:8083/mqtt"; // MQTT服务器地址
     const mqttTopic = "senson319C"; // MQTT主题
-    
+    const musicPath = "https://zybzyb1.github.io/the-first-babylon/fongWeiZhu.mp3"
+
 
     // 创建场景
     const createScene = function () {
         const scene = new BABYLON.Scene(engine);
-        const camera = new BABYLON.ArcRotateCamera("camera", 0,0, 5, new BABYLON.Vector3(0, 0, 0));  //-Math.PI / 2, Math.PI / 3
+        const camera = new BABYLON.ArcRotateCamera("camera", 0,Math.PI / 3, 6, new BABYLON.Vector3(0, 0, 0));  //-Math.PI / 2, Math.PI / 3
         // 设置 zoomToMouseLocation 为 true，使得鼠标滚轮缩放以鼠标位置为中心
         camera.zoomToMouseLocation = true;
         // 可以设置 wheelDeltaPercentage 来改变缩放速度
         camera.wheelDeltaPercentage = 0.01;
         camera.attachControl(canvas, true);
         //const light = new BABYLON.PointLight("light", new BABYLON.Vector3(0, 2, 0), scene);  //点光源 //HemisphericLight("light", new BABYLON.Vector3(1, 1, 0));
-        const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 5, 0), scene);  //半球光源
+        const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 6, 0), scene);  //半球光源
     
 
         // 调用loadModel函数，传入模型URL和回调函数  
@@ -85,11 +87,24 @@
         loadModel(laohuaJiaUrl, laohuaJiaName,scene, onLaohuaJiaLoaded);
 
         // 创建地面
-        const ground = BABYLON.Mesh.CreateGround("ground", 50, 50, 1, scene);
+        // const ground = BABYLON.Mesh.CreateGround("ground", 50, 50, 1, scene);
+        // ground.position.y = -0.1;
+        // ground.material = new BABYLON.StandardMaterial("ground", scene);
+        // ground.material.diffuseColor = new BABYLON.Color3(0.2, 0.2, 0.25);
+        // ground.material.specularColor = new BABYLON.Color3(0, 0, 0);
+        var ground = BABYLON.MeshBuilder.CreateGround("ground", {width: 50, height: 50}, scene);  
+        const groundMaterial = new BABYLON.StandardMaterial("Ground Material", scene);
+        groundMaterial.diffuseColor = BABYLON.Color3.Red();
+        groundMaterial.bumpTexture = new BABYLON.Texture("PATH TO NORMAL MAP", scene);
+        groundMaterial.invertNormalMapX = true;
+        groundMaterial.invertNormalMapY = true;
+        ground.material = groundMaterial;
         ground.position.y = -0.1;
-        ground.material = new BABYLON.StandardMaterial("ground", scene);
-        ground.material.diffuseColor = new BABYLON.Color3(0.2, 0.2, 0.25);
-        ground.material.specularColor = new BABYLON.Color3(0, 0, 0);
+        // 加载音频文件    连续播放音效
+        const music = new BABYLON.Sound("cello", musicPath, scene, null, { loop: true, autoplay: true });
+        //const music = new BABYLON.Sound("bounce", musicPath, scene);
+        // setInterval(() => music.play(), 3000); // 定时播放音效
+
 
         // 加载天空盒
         const skybox = BABYLON.Mesh.CreateBox("skyBox", 1000, scene);
@@ -100,7 +115,9 @@
         skybox.material = skyboxMaterial;
         skybox.infiniteDistance = true;
 
-
+         // 创建MQTT客户端
+        mqttClient = creatMqttClient(mqttUrl);
+ 
         return scene;
     };
 
@@ -112,7 +129,63 @@
     window.addEventListener("resize", function () {
         engine.resize();
     })
+    
+    function creatMqttClient(mqttServerIp)  //
+    {
+        const client = mqtt.connect(mqttServerIp);
 
+        client.on('connect', function () {
+            console.log('Connected to MQTT broker');
+            client.subscribe('colorChange'); // 订阅主题
+            //client.publish('AnsMessage', 'Hello MQTT');
+            if (res == 0x01) 
+                    client.publish('AnsMessage','model loading')
+            if(res & 0x01)
+                    client.publish('AnsMessage','老化车 loaded successfully');
+            if(res & 0x02)  
+                    client.publish('AnsMessage','老化车 loading fail');
+            if(res & 0x04)     
+                    client.publish('AnsMessage','老化车 loading failed');
+            if (res & 0x10) 
+                client.publish('AnsMessage','319-C loaded successfully');
+            if (res & 0x20)   
+                    client.publish('AnsMessage','319-C loading fail');
+            if (res & 0x40) 
+                    client.publish('AnsMessage','319-C loading failed');
+        });
+
+        client.on('message', function (topic, message) {
+            // 处理接收到的JSON消息
+            try {
+                const data = JSON.parse(message.toString());
+                // const faceCache = []; // 声明数组缓存face值
+                // // 检查消息内容
+                // if (data.colors && Array.isArray(data.colors)) {
+                //     修改指定面的颜色
+                //     data.colors.forEach(colorInfo => {
+                //         if (colorInfo.face >= 0 && colorInfo.face < 6) {
+                //             materials[colorInfo.face].diffuseColor = new BABYLON.Color3(colorInfo.r, colorInfo.g, colorInfo.b);
+                //             faceCache.push(colorInfo.face); // 缓存face值
+                //         }
+                //     });
+                // }
+                client.publish('AnsMessage',data);
+                if (data.rotationSpeed !== undefined) {
+                    rotationSpeed = data.rotationSpeed; // 更新自转速度
+                }
+
+                if (data.radius !== undefined) {
+                    radius = data.radius; // 更新半径
+                }
+                // 发送应答信息，包括缓存的face值
+                client.publish('AnsMessage', JSON.stringify({ status: 'OK', faces: faceCache }));
+            } catch (e) {
+                console.error('Error parsing message:', e);
+                client.publish('AnsMessage', 'Failed');
+            }
+        });
+        return client;
+    }
 
     // serson加载完成的回调函数，执行一些操作
     function onSensorLoaded(result) {
@@ -458,7 +531,7 @@
             }
         }
     }
-
+    
 </script>
 <button id="moveButton">Move Senson319C</button>
 </body>
